@@ -1,9 +1,9 @@
 GEM
   remote: http://rubygems.org/
   specs:
+    awesome_print (1.8.0)
     bson (4.3.0)
     dotenv (2.5.0)
-    messagebird-rest (1.4.1)
     mongo (2.6.2)
       bson (>= 4.3.0, < 5.0.0)
     mustermann (1.0.3)
@@ -21,8 +21,8 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  awesome_print
   dotenv (~> 2.5)
-  messagebird-rest (~> 1.4)
   mongo (~> 2.6)
   sinatra (~> 2.0)
 

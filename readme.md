@@ -1,38 +1,42 @@
-# Setting SMS Marketing Subscriptions with MessageBird
+# Automated Voice Surveys
 
-### ⏱ 30 min build time
+### ⏱ 15 min build time
 
-## Why build SMS marketing subscriptions?
+## Why build automated voice surveys?
 
-In this MessageBird Developer Tutorial, you’ll learn how to implement an SMS marketing campaign subscription application powered by the [MessageBird SMS Messaging API](https://developers.messagebird.com/docs/sms-messaging) and enable your subscribers to seamlessly opt-in and out.
-
-SMS makes it incredibly easy for businesses to reach consumers everywhere at any time, directly on their mobile devices. For many people, these messages are a great way to discover things like discounts and special offers from a company, while others might find them annoying. For this reason, it’s important and also required by law in many countries to provide clear opt-in and opt-out mechanisms for SMS broadcast lists. To make these work independently of a website it's useful to assign a programmable [virtual mobile number](https://www.messagebird.com/en/numbers) to your SMS campaign and handle incoming messages programmatically so users can control their subscription with basic command keywords.
-
-We'll walk you through the following steps:
-
-* A person can send the keyword _SUBSCRIBE_ to a specific VMN that the company includes in their advertising material; the opt-in is immediately confirmed.
-* If the person no longer wants to receive messages they can send the keyword _STOP_ to the same number; the opt-out is also confirmed.
-* An administrator can enter a message in a form on a website. Then they can send this message to all confirmed subscribers immediately.
+Surveys are a great way to gather feedback about a product or a service. In this MessageBird Developer Tutorial, we'll look at a company that wants to collect surveys over the phone by providing their customers a feedback number that they can call and submit their opinion as voice messages that the company's support team can listen to on a website and incorporate that feedback into the next version of the product. This team should be able to focus their attention on the input on their own time instead of having to wait and answer calls. Therefore, the feedback collection itself is fully automated.
 
 ## Getting Started
 
-Since our sample application is built in Ruby, you need to have [Ruby](https://www.ruby-lang.org/en/) and [bundler](https://bundler.io/) installed.
+The sample application is built in Ruby using the [Sinatra framework](http://sinatrarb.com/). You can download or clone the complete source code from the [MessageBird Developer Tutorials GitHub repository](https://github.com/messagebirdguides/automated-surveys-ruby) to run the application on your computer and follow along with the tutorial. To run the sample, you will need [Ruby](https://www.ruby-lang.org/en/) and [bundler](https://bundler.io/) installed.
 
-We've provided the source code of the sample application in the [MessageBird Developer Tutorials GitHub repository](https://github.com/messagebirdguides/subscriptions-guide-ruby), which you can either clone with git or from where you can download a ZIP file with the source code to your computer.
-
-To install the [MessageBird SDK for Ruby](https://rubygems.org/gems/messagebird-rest) and other dependencies, open a console pointed at the directory into which you've placed the sample application and run the following command:
+Let's get started by opening the directory of the sample application and running the following command to install the dependencies:
 
 ```
 bundle install
 ```
 
-The sample application uses [MongoDB](https://rubygems.org/gems/mongo) to provide an in-memory database for testing, so you don't need to configure an external database.
+The sample application uses [MongoDB](https://rubygems.org/gems/mongo) to provide an in-memory database for testing, so you don't need to configure an external database. As the mock loses data when you restart the application you need to replace it with a real server when you want to develop this sample into a production application.
 
-## Prerequisites for Receiving Messages
+## Designing the Call Flow
+
+Call flows in MessageBird are sequences of steps. Each step can be a different action, such as playing an audio file, speaking words through text-to-speech (TTS), recording the caller's voice or transferring the call to another party. The call flow for this survey application alternates two types of actions: saying the question (`say` action) and recording an answer (`record` action). Other action types are not required. The whole flow begins with a short introduction text and ends on a "Thank you" note, both of which are implemented as `say` actions.
+
+The survey application generates the call flow dynamically through Ruby code and provides it on a webhook endpoint as a JSON response that MessageBird can parse. It does not, however, return the complete flow at once. The generated steps always end on a `record` action with the `onFinish` attribute set to the same webhook endpoint URL. This approach simplifies the collection of recordings because whenever the caller provides an answer, an identifier for the recording is sent with the next webhook request. The endpoint will then store information about the answer to the question and return additional steps: either the next question together with its answer recording step or, if the caller has reached the end of the survey, the final "Thank you" note.
+
+The sample implementation contains only a single survey. For each participant, we create a (mocked) database entry that includes a unique MessageBird-generated identifier for the call, their number and an array of responses. As the webhook is requested multiple times for each caller, once in the beginning and once for each answer they record, the length of the responses array indicates their position within the survey and determines the next step.
+
+All questions are stored as an array in the file `questions.yml` to keep them separate from the implementation. The following statement at the top of `app.rb` loads them:
+
+```
+questions =YAML.load_file('questions.yml')
+```
+
+## Prerequisites for Receiving Calls
 
 ### Overview
 
-This tutorial describes receiving messages using MessageBird. From a high-level viewpoint, receiving is relatively simple: an application defines a _webhook_ URL, which you assign to a number purchased in the MessageBird Dashboard using a flow. A [webhook](https://en.wikipedia.org/wiki/Webhook) is a URL on your site that doesn't render a page to users but is like an API endpoint that can be triggered by other servers. Every time someone sends a message to that number, MessageBird collects it and forwards it to the webhook URL where you can process it.
+Participants take part in a survey by calling a dedicated virtual phone number. MessageBird accepts the call and contacts the application on a _webhook URL_, which you assign to your number on the MessageBird Dashboard using a flow. A [webhook](https://en.wikipedia.org/wiki/Webhook) is a URL on your site that doesn't render a page to users but is like an API endpoint that can be triggered by other servers. Every time someone calls that number, MessageBird checks that URL for instructions on how to interact with the caller.
 
 ### Exposing your Development Server with ngrok
 
@@ -52,179 +56,238 @@ Another common tool for tunneling your local machine is [localtunnel.me](https:/
 
 ### Getting an Inbound Number
 
-A requirement for receiving messages is a dedicated inbound number. Virtual mobile numbers look and work in a similar way to regular mobile numbers, however, instead of being attached to a mobile device via a SIM card, they live in the cloud and can process incoming SMS and voice calls. MessageBird offers numbers from different countries for a low monthly fee; [feel free to explore our low-cost programmable and configurable numbers](https://www.messagebird.com/en/numbers).
+A requirement for programmatically taking voice calls is a dedicated inbound number. Virtual telephone numbers live in the cloud, i.e., a data center. MessageBird offers numbers from different countries for a low monthly fee. Here's how to purchase one:
 
-Purchasing a number is quite easy:
+1. Go to the [Numbers](https://dashboard.messagebird.com/en/numbers) section of your MessageBird account and click Buy a number.
+2. Choose the country in which you and your customers are located and make sure the _Voice_ capability is selected.
+3. Choose one number from the selection and the duration for which you want to pay now. Buy a number screenshot
+  ![Buy a number screenshot](https://developers.messagebird.com/assets/images/screenshots/automatedsurveys-node/buy-a-number.png)
+4. Confirm by clicking **Buy Number**.
 
-1. Go to the '[Numbers](https://dashboard.messagebird.com/en/numbers)' section in the left-hand side of your Dashboard and click the blue button '[Buy a number](https://dashboard.messagebird.com/en/vmn/buy-number)' in the top-right side of your screen.
-2. Pick the country in which you and your customers are located, and make sure both the SMS capability is selected.
-3. Choose one number from the selection and the duration for which you want to pay now.
-4. Confirm by clicking 'Buy Number' in the bottom-right of your screen.
-![Buy a number](https://developers.messagebird.com/assets/images/screenshots/subscription-node/buy-a-number.png)
+Excellent, you have set up your first virtual number!
 
-Awesome, you’ve set up your first virtual mobile number! 🎉
+### Connecting the Number to your Application
 
-**Pro-Tip**: Check out our Help Center for more information about [virtual mobile numbers])https://support.messagebird.com/hc/en-us/sections/201958489-Virtual-Numbers and [country restrictions](https://support.messagebird.com/hc/en-us/sections/360000108538-Country-info-Restrictions).
+So you have a number now, but MessageBird has no idea what to do with it. That's why you need to define a _Flow_ next that ties your number to your webhook:
 
-### Connect Number to the Webhook
+1. Open the Flow Builder and click **Create new flow**.
+2. In the following dialog, choose **Create Custom Flow**.
+  ![Create custom flow screenshot](https://developers.messagebird.com/assets/images/screenshots/automatedsurveys-node/create-a-new-flow.png)
+3. Give your flow a name, such as "Survey Participation", select _Phone Call_ as the trigger and continue with **Next**. Create Flow, Step 1
+  ![Create Flow, Step 1](https://developers.messagebird.com/assets/images/screenshots/automatedsurveys-node/setup-new-flow.png)
+4. Configure the trigger step by ticking the box next to your number and click **Save**.
+  ![Create Flow, Step 2](https://developers.messagebird.com/assets/images/screenshots/automatedsurveys-php/create-flow-2.png)
 
-So you have a number now, but MessageBird has no idea what to do with it. That's why now you need to define a _Flow_ that links your number to your webhook. This is how you do it:
+5. Press the small **+** to add a new step to your flow and choose **Fetch call flow from URL**.       
+  ![Create Flow, Step 3](https://developers.messagebird.com/assets/images/screenshots/automatedsurveys-php/create-flow-3.png)
 
-#### STEP ONE
-On the ‘[Numbers](https://dashboard.messagebird.com/en/numbers)’ section of the MessageBird Dashboard, click the ‘Add a new flow’ icon next to the number you purchased.
+6. Paste the localtunnel base URL into the form and append `/callStep` to it - this is the name of our webhook handler route. Click **Save**.
+  ![Create Flow, Step 4](https://developers.messagebird.com/assets/images/screenshots/automatedsurveys-php/create-flow-4.png)
 
-![Add a new flow](https://developers.messagebird.com/assets/images/screenshots/subscription-node/add-new-flow.png)
+7. Hit **Publish** and your flow becomes active!
 
-#### STEP TWO
-Hit `‘Create Custom Flow’` and give your flow a name, choose ‘SMS’ as the trigger and hit ‘Next’.
+## Implementing the Call Steps
 
-![Setup New Flow](https://developers.messagebird.com/assets/images/screenshots/subscription-node/setup-new-flow.png)
-
-#### STEP THREE
-The number is already attached to the first step ‘SMS’. Add a new step by pressing the small `+`, choose `Forward to URL` and select `POST` as the method; copy the output from the ngrok command in the URL and add `/webhook` to it—this is the name of the route we use to handle incoming messages in our sample application. Click on ‘Save’ when ready.
-
-![Forward to URL](https://developers.messagebird.com/assets/images/screenshots/subscription-node/forward-to-URL.png)
-#### STEP FOUR
-Ready! Hit ‘Publish’ on the right top of the screen to activate your flow. Well done, another step closer to testing incoming messages!
-
-![SMS Subscriptions](https://developers.messagebird.com/assets/images/screenshots/subscription-node/SMS-Subscriptions.png)
-
-**Pro-Tip**: You can edit the name of the flow by clicking on the icon next to button ‘Back to Overview’ and pressing ‘Rename flow’.
-
-![Rename flow](https://developers.messagebird.com/assets/images/screenshots/subscription-node/rename-flow.png)
-
-## Configuring the MessageBird SDK
-
-While the MessageBird SDK and an API key are not required to receive messages, it is necessary for sending confirmations and marketing messages. The SDK is defined in `Gemfile` and loaded with a statement in `app.rb`:
+The routes `get /callStep` and `post /callStep` in `app.rb` contains the implementation of the survey call flow.  It starts with the basic structure for a hash object called `flow`, which we'll extend depending on where we are within our survey:
 
 ``` ruby
-# Load and initialize MesageBird SDK
-client = MessageBird::Client.new(ENV['MESSAGEBIRD_API_KEY'])
+%i[get post].each do |method|
+  send method, '/callStep' do
+    # Prepare a Call Flow that can be extended
+    flow = {
+      title: 'Survey Call Step',
+      steps: []
+    }
 ```
 
-You need to provide a MessageBird API key, as well as the phone number you registered so that you can use it as the originator via environment variables. Thanks to [dotenv](https://rubygems.org/gems/dotenv) you can also supply these through an `.env` file stored next to `app.rb`:
+Next, we connect to MongoDB, select a collection and try to find an existing call:
+
+``` ruby
+collection = DB[:survey_participants]
+
+call_id = params['callID']
+
+doc = collection.find(callId: call_id).first
+```
+
+The application continues inside the callback function. First, we determine the ID (i.e., array index) of the next question, which is 0 for new participants or the number of existing answers plus one for existing ones:
+
+``` ruby
+# Determine the next question
+question_id = doc.nil? ? 0 : doc['responses'].length + 1
+```
+
+For new participants, we also need to create a document in the MongoDB collection and persist it to the database. This record contains the identifier of the call and the caller ID, which are taken from the query parameters sent by MessageBird as part of the webhook (i.e., call flow fetch) request, `callID` and `destination` respectively. It includes an empty responses array as well.
+
+``` ruby
+if doc.nil?
+  # Create new participant database entry
+  doc = {
+    callId: params['callID'],
+    number: params['destination'],
+    responses: []
+  }
+  collection.insert_one(doc)
+end
+```
+
+The answers are persisted by adding them to the responses array and then updating the document in the MongoDB collection. For every answer we store two identifiers from the parsed JSON request body: the `legId` that identifies the caller in a multi-party voice call and is required to fetch the recording, as well as the id of the recording itself which we store as `recordingId`:
+
+```ruby
+if question_id > 0
+  request_payload = JSON.parse(request.body.read.to_s)
+
+  # Unless we're at the first question, store the response
+  # of the previous question
+  doc['responses'].push({
+    legId: request_payload['legId'],
+    recordingId: request_payload['id']
+  })
+
+  collection.update_one({ 'callId' => call_id }, { '$set' => { 'responses' => doc['responses'] } })
+end
+```
+
+Now it's time to ask a question. Let's first check if we reached the end of the survey. That is determined by whether the question index equals the length of the questions list and therefore is out of bounds of the array, which means there are no further questions. If so, we thank the caller for their participation:
+
+``` ruby
+if question_id == QUESTIONS.length
+  # All questions have been answered
+  flow[:steps].push(say('You have completed our survey. Thank you for participating!'))
+```
+
+You'll notice the `say()` function. It is a small helper function we've declared separately in the initial section of `app.rb` to simplify the creation of `say` steps as we need them multiple times in the application. The function returns the action in the format expected by MessageBird so it can be added to the steps of a flow using `push()`, as seen above.
+
+A function like this allows setting options for `say` actions at a central location. You can modify it if you want to, for example, specify another language or voice:
+
+``` ruby
+def say(payload)
+  {
+    action: 'say',
+    options: {
+      payload: payload,
+      voice: 'male',
+      language: 'en-US'
+    }
+  }
+end
+```
+
+Back in the route, there's an `else`-block that handles all questions other than the last. There's another nested `if`-statement in it, though, to treat the first question, as we need to read a welcome message to our participant before the question:
+
+``` ruby
+if question_id.zero?
+  # Before first question, say welcome
+  flow[:steps].push(say("Welcome to our survey! You will be asked #{QUESTIONS.length}questions. The answers will be recorded. Speak your response for each and press any key on your phone to move on to the next question. Here is the first question:"))
+end
+```
+
+Finally, here comes the general logic used for each question:
+
+* Ask the question using `say`.
+* Request a recording.
+
+``` ruby
+# Ask next question
+flow[:steps].push(say(QUESTIONS[question_id]))
+
+# Request recording of question
+flow[:steps].push(
+  action: 'record',
+  options: {
+    # Finish either on key press or after 10 seconds of silence
+    finishOnKey: 'any',
+    timeout: 10,
+    # Send recording to this same call flow URL
+    onFinish: "http://#{request.host}/callStep"
+  }
+)
+```
+
+The `record` step is configured so that it finishes when the caller presses any key on their phone's keypad (`finishOnKey` attribute) or when MessageBird detects 10 seconds of silence (`timeout` attribute). By specifying the URL with the onFinish attribute we can make sure that the recording data is sent back to our route and that we can send additional steps to the caller. Building the URL with protocol and hostname information from the request ensures that it works wherever the application is deployed and also behind the tunnel.
+
+Only one tiny part remains: the last step in each webhook request is sending back a JSON response based on the `flow` object:
+
+``` ruby
+content_type :json
+flow.to_json
+```
+
+## Building an Admin View
+
+The survey application also contains an admin view that allows us to view the survey participants and listen to their responses. The implementation of the `get '/admin'` route is straightforward, it essentially loads everything from the database plus the questions data and adds it to the data available for an [ERB template](https://ruby-doc.org/stdlib-2.5.1/libdoc/erb/rdoc/ERB.html).
+
+The template, which you can see in `views/participants.erb`, contains a basic HTML structure with a three-column table. Inside the table, two nested loops over the participants and their responses add a line for each answer with the number of the caller, the question and a "Listen" button that plays it back.
+
+Let's have a more detailed look at the implementation of this "Listen" button. On the frontend, the button calls a Javascript function called `playAudio()` with the `callId`, `legId` and `recordingId` inserted through ERB expressions:
+
+``` HTML
+<button onclick="playAudio('<%= p[:callId] %>','<%= response[:legId] %>','<%= response[:recordingId] %>')">Listen</button>
+```
+
+The implementation of that function dynamically generates an invisible, auto-playing HTML5 audio element:
+
+``` javascript
+function playAudio(callId, legId, recordingId) {
+    document.getElementById('audioplayer').innerHTML
+        = '<audio autoplay="1"><source src="/play/' + callId
+            + '/' + legId + '/' + recordingId
+            + '" type="audio/wav"></audio>';
+}
+```
+
+As you can see, the WAV audio is requested from a route of the survey application. This route acts as a proxy server that fetches the audio from MessageBird's API and uses the `pipe()` function to forward it to the frontend. This architecture is necessary because we need a MessageBird API key to fetch the audio but don't want to expose it on the client-side of our application. We use request to make the API call and add the API key as an HTTP header:
+
+``` ruby
+get '/play/:callId/:legId/:recordingId' do
+  uri = URI.parse("https://voice.messagebird.com/calls/#{params[:callId]}/legs/#{params[:legId]}/recordings/#{params[:recordingId]}.wav")
+
+  http = Net::HTTP.new(uri.host, uri.port)
+
+  request = Net::HTTP::Post.new(uri.request_uri)
+  request['Authorization'] = "AccessKey #{ENV['MESSAGEBIRD_API_KEY']}"
+
+  # stream back the contents
+  stream(:keep_open) do |out|
+    http.request(request) do |f|
+      f.read_body { |ch| out << ch }
+    end
+  end
+end
+```
+
+As you can see, the API key is taken from an environment variable. To provide the key in the environment variable, [dotenv](https://rubygems.org/gems/dotenv) is used. We've prepared an env.example file in the repository, which you should rename to .env and add the required information. Here's an example:
 
 ```
 MESSAGEBIRD_API_KEY=YOUR-API-KEY
-MESSAGEBIRD_ORIGINATOR=+31970XXXXXXX
 ```
 
-The [API access (REST) tab](https://dashboard.messagebird.com/en/developers/access) in the [Developers section](https://dashboard.messagebird.com/en/developers/settings) of the MessageBird Dashboard allows you to create or retrieve a live API key.
+You can create or retrieve a live API key from the [API access (REST) tab](https://dashboard.messagebird.com/en/developers/access) in the [Developers section](https://dashboard.messagebird.com/en/developers/settings) of your MessageBird account.
 
-## Receiving Messages
+## Testing your Application
 
-Now we're fully prepared for receiving inbound messages; let's have a look at the actual implementation of our `/webhook` route:
+Check again that you have set up your number correctly with a flow to forward incoming phone calls to an ngrok URL and that the tunnel is still running. Remember, whenever you start a fresh tunnel, you'll get a new URL, so you have to update the flows accordingly.
 
-```ruby
-# Handle incoming webhooks
-post '/webhook' do
-  request.body.rewind
-  request_payload = JSON.parse(request.body.read)
-
-  # Read input sent from MessageBird
-  number = request_payload['originator']
-  text = request_payload['body'].downcase
-```
-
-The webhook receives some request parameters from MessageBird; however, we're only interested in two of them: the  `originator ` (the number of the user who sent the message) and the `body` (the text of the message). The content is trimmed and converted into lower case so we can easily do case-insensitive command detection.
-
-```ruby
-# Find subscriber in our database
-subscribers = DB[:subscribers]
-doc = subscribers.find(number: number).first
-```
-
-Using our MongoDB client, we'll look up the number in a collection aptly named subscribers.
-
-We're looking at three potential cases:
-
-* The user has sent _SUBSCRIBE_ and the number doesn’t exist. In that case, the subscriber should be added and opted in.
-* The user has submitted _SUBSCRIBE_ and the number exists but has opted out. In that case, it should be opted in (again).
-* The user has sent _STOP_ and the number exists and has opted in. In that case, it should be opted out.
-
-For each of those cases, a differently worded confirmation message should be sent. All incoming messages that don't fit any of these cases are ignored and don't get a reply. You can optimize this behavior by sending a help message with all supported commands.
-
-The implementation of each case is similar, so let's only look at one of them here:
-
-```ruby
-if doc.nil? && text == 'subscribe'
-  # The user has sent the "subscribe" keyword
-  # and is not stored in the database yet, so
-  # we add them to the database.
-  doc = {
-    number: number,
-    subscribed: true
-  }
-  collection.insert_one(doc)
-
-  # Notify the user
-  client.message_create(env['MESSAGEBIRD_ORIGINATOR'], [number], 'Thanks for subscribing to our list! Send STOP anytime if you no longer want to receive messages from us.')
-end
-```
-
-If no `doc` (database entry) exists and the text matches “subscribe”, the script executes an insert query that stores a document with the number and the boolean variable `subscribed` set to `true`. The user is notified by calling the `client.message_create` SDK method and, as parameters, passing the originator from our configuration, a recipient list with the number from the incoming message and a hardcoded text body.
-
-## Sending Messages
-
-### Showing Form
-
-We've defined a simple form with a single text area and a submit button, and stored it as a Handlebars template in `views/home.erb`. It is rendered for a GET request on the root of the application. As a small hint for the admin, we're also showing the number of subscribers in the database.
-
-### Processing input
-
-The form submits its content as a POST request to the `/send` route. The implementation of this route fetches all subscribers that have opted in from the database and then uses the MessageBird SDK to send a message to them. It is possible to send a message to up to 50 receivers in a single API call, so the script splits a list of subscribers that is longer than 50 numbers (highly unlikely during testing, unless you have amassed an impressive collection of phones) into blocks of 50 numbers each. Sending uses the `client.message_create` SDK method which you've already seen in the previous section.
-
-Here's the full code block:
-
-``` ruby
-post '/send' do
-  # Read input from user
-  message = params['message']
-
-  # Get number of subscribers to show on the form
-  subscribers = DB[:subscribers]
-
-  docs = subscribers.find(subscribed: true)
-
-  recipients = []
-  count = 0
-
-  # Collect all numbers
-  docs.each do |doc|
-    recipients.push(doc["number"])
-    count += 1
-    if count == docs.count || count % 50 == 0
-      # We have reached either the end of our list or 50 numbers,
-      # which is the maximum that MessageBird accepts in a single
-      # API call, so we send the message and then, if any numbers
-      # are remaining, start a new list
-      client.message_create(ENV['MESSAGEBIRD_ORIGINATOR'], recipients, message)
-      recipients = []
-    end
-  end
-
-  return erb :sent, locals: { count: count }
-end
-```
-
-## Testing the Application
-
-Double-check that you’ve set up your number correctly with a flow that forwards incoming messages to a ngrok URL and that the tunnel is still running. Keep in mind that whenever you start a fresh tunnel, you'll get a new URL, so you have to update it in the flows accordingly.
-
-To start the sample application you have to enter another command, but your existing console window is now busy running your tunnel, so you need to open another one. With Mac you can press **Command + Tab** to open a second tab that's already pointed to the correct directory. With other operating systems you may have to open another console window manually. Either way, once you've got a command prompt, type the following to start the application:
+To start the application, let's open another console window as your existing console window is already busy running your tunnel. On a Mac you can press Command + Tab to open a second tab that's already pointed to the correct directory. With other operating systems you may have to resort to open another console window manually. Either way, once you've got a command prompt, type the following to start the application:
 
 ```
 ruby app.rb
 ```
 
-While keeping the console open, take out your phone, launch the SMS app and send a message to your virtual mobile number with the keyword “subscribe”. A few seconds later, a confirmation message should arrive shortly. Open http://localhost:4567/ in your browser (or your tunnel URL), and you should also see that there's one subscriber. Try sending yourself a message now. And voilá, your marketing system is ready!
+Now, take your phone and dial your survey number. You should hear the welcome message and the first question. Speak an answer and press any key. At that moment you should see some database debug output in the console. Open http://localhost:4567/admin to see your call as well. Continue interacting with the survey. In the end, you can refresh your browser and listen to all the answers you recorded within your phone call.
 
-You can adapt the sample application for production by adding some authorization to the web form; otherwise, anybody could send messages to your subscribers. Don't forget to download the code from the [MessageBird Developer Tutorials GitHub repository](https://github.com/messagebirdguides/subscriptions-guide-ruby).
+Congratulations, you just deployed a survey system with MessageBird!
 
-**Nice work!** 🎉
+## Supporting Outbound Calls
 
-You've just built your own marketing system with MessageBird!
+The application was designed for incoming calls where survey participants call a virtual number and can provide their answers. The same code works without any changes for an outbound call scenario as well. The only thing you have to do is to start a call through the API or other means and use a call flow that contains a `fetchCallFlow` step pointing to your webhook route.
 
-## Start building!
+## Nice work!
 
-Want to build something similar but not quite sure how to get started? Feel free to let us know at support@messagebird.com; we'd love to help!
+You now have a running integration of MessageBird's Voice API!
+
+You can now leverage the flow, code snippets and UI examples from this tutorial to build your own automated voice survey. Don't forget to download the code from the [MessageBird Developer Tutorials GitHub repository](https://github.com/messagebirdguides/automated-surveys-ruby).
+
+## Next steps 🎉
+
+Want to build something similar but not quite sure how to get started? Please feel free to let us know at support@messagebird.com, we'd love to help!

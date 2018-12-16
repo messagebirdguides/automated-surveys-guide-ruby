@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Phone Survey Responses</title>
+        <style type="text/css">
+            body {
+                font-family:sans-serif;
+            }
+            table {
+                border:solid 1px #aaa;
+                width:100%;
+            }
+            td,th {
+                padding:10px;
+                border:solid 1px #555;
+            }
+            button {
+                border:solid 1px #555;
+                background-color:#ddd;
+                font-size:1em;
+            }
+        </style>
+        <script type="application/javascript">
+            function playAudio(callId, legId, recordingId) {
+                document.getElementById('audioplayer').innerHTML
+                    = '<audio autoplay="1"><source src="/play/' + callId
+                        + '/' + legId + '/' + recordingId
+                        + '" type="audio/wav"></audio>';
+            }
+        </script>
+    </head>
+    <body>
+        <h1 style="text-align:center;">Phone Survey Responses</h1>
+
+        <table>
+            <tr>
+                <th>Customer</th>
+                <th>Question</th>
+                <th>Answer</th>
+            </tr>
+            <% participants.each do |p| %>
+              <% p[:responses].each_with_index do |response, idx| %>
+                <tr>
+                    <td><%= p[:number] %></td>
+                    <td><%= questions[idx] %></td>
+                    <td><button onclick="playAudio('<%= p[:callId] %>','<%= response[:legId] %>','<%= response[:recordingId] %>')">Listen</button></td>
+                </tr>
+              <% end %>
+            <% end %>
+        </table>
+
+        <div id="audioplayer" style="visibility:hidden;">
+        </div>
+
+        <p style="text-align:center;">A sample application brought to you by <a href="https://developers.messagebird.com/">MessageBird</a> :)</p>
+    </body>
+</html>
